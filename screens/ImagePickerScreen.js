@@ -18,7 +18,10 @@ const { width } = Dimensions.get('window');
 
 export default function ImagePickerScreen({ navigation }) {
   const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedImages, setSelectedImages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [batchMode, setBatchMode] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
 
   const pickImage = async () => {
     try {
@@ -42,6 +45,8 @@ export default function ImagePickerScreen({ navigation }) {
         allowsEditing: false,
         quality: 1,
         exif: true, // This ensures EXIF data is included
+        allowsMultipleSelection: batchMode, // Enable multiple selection in batch mode
+        selectionLimit: batchMode ? 10 : 1, // Limit to 10 images in batch mode
       });
 
       // Log EXIF data for debugging
@@ -50,7 +55,13 @@ export default function ImagePickerScreen({ navigation }) {
       }
 
       if (!result.canceled) {
-        setSelectedImage(result.assets[0]);
+        if (batchMode) {
+          setSelectedImages(result.assets);
+          navigation.navigate('BatchResults', { images: result.assets });
+        } else {
+          setSelectedImage(result.assets[0]);
+          // Don't navigate automatically - wait for user to press "Analyze Metadata"
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -60,9 +71,14 @@ export default function ImagePickerScreen({ navigation }) {
     }
   };
 
-  const analyzeImage = () => {
+  const analyzeImage = async () => {
     if (selectedImage) {
-      navigation.navigate('Metadata', { image: selectedImage });
+      setAnalyzing(true);
+      // Add a longer delay to show the loading state and simulate processing
+      setTimeout(() => {
+        setAnalyzing(false);
+        navigation.navigate('Metadata', { image: selectedImage });
+      }, 2500); // Increased from 800ms to 2500ms (2.5 seconds)
     }
   };
 
@@ -100,8 +116,27 @@ export default function ImagePickerScreen({ navigation }) {
           </View>
 
           <View style={styles.buttonContainer}>
+            <View style={styles.modeToggle}>
+              <TouchableOpacity
+                style={[styles.modeButton, !batchMode && styles.modeButtonActive]}
+                onPress={() => setBatchMode(false)}
+              >
+                <Text style={[styles.modeButtonText, !batchMode && styles.modeButtonTextActive]}>
+                  📷 Single Photo
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeButton, batchMode && styles.modeButtonActive]}
+                onPress={() => setBatchMode(true)}
+              >
+                <Text style={[styles.modeButtonText, batchMode && styles.modeButtonTextActive]}>
+                  📚 Batch Process (Max 10)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity
-              style={[styles.button, styles.primaryButton]}
+              style={[styles.button, styles.primaryButton, loading && styles.buttonDisabled]}
               onPress={pickImage}
               disabled={loading}
             >
@@ -109,17 +144,31 @@ export default function ImagePickerScreen({ navigation }) {
                 <ActivityIndicator color="#ffffff" />
               ) : (
                 <Text style={styles.buttonText}>
-                  {selectedImage ? 'Change Image' : 'Select Image'}
+                  {batchMode ? '📚 Select Multiple Photos' : (selectedImage ? '📷 Change Photo' : '📷 Select Photo')}
                 </Text>
               )}
             </TouchableOpacity>
 
-            {selectedImage && (
+            {selectedImage && !batchMode && (
               <TouchableOpacity
-                style={[styles.button, styles.secondaryButton]}
+                style={[
+                  styles.button,
+                  styles.secondaryButton,
+                  analyzing && styles.buttonDisabled
+                ]}
                 onPress={analyzeImage}
+                disabled={analyzing}
               >
-                <Text style={styles.secondaryButtonText}>Analyze Metadata</Text>
+                {analyzing ? (
+                  <View style={styles.buttonContent}>
+                    <ActivityIndicator color="#ffffff" size="small" />
+                    <Text style={[styles.secondaryButtonText, { marginLeft: 10 }]}>
+                      Analyzing...
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.secondaryButtonText}>🔍 Analyze Metadata</Text>
+                )}
               </TouchableOpacity>
             )}
           </View>
@@ -213,6 +262,41 @@ const styles = StyleSheet.create({
   buttonContainer: {
     gap: 15,
   },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 25,
+    padding: 5,
+    marginBottom: 10,
+  },
+  modeButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    alignItems: 'center',
+  },
+  modeButtonActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  modeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+    opacity: 0.7,
+  },
+  modeButtonTextActive: {
+    color: '#667eea',
+    opacity: 1,
+  },
   button: {
     paddingVertical: 18,
     paddingHorizontal: 40,
@@ -244,5 +328,13 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
 });

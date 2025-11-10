@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,12 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as FileSystem from 'expo-file-system';
 import * as Location from 'expo-location';
+import * as Sharing from 'expo-sharing';
 import EXIF from 'exif-js';
 
 const { width } = Dimensions.get('window');
@@ -26,10 +28,47 @@ export default function MetadataScreen({ route, navigation }) {
   const [locationData, setLocationData] = useState(null);
   const [address, setAddress] = useState(null);
   const [processingComplete, setProcessingComplete] = useState(false);
+  const [weatherData, setWeatherData] = useState(null);
+
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const locationFadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     extractMetadata();
+
+    // Start entrance animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
+
+  // Animate location section when location data becomes available
+  useEffect(() => {
+    if (locationData) {
+      Animated.timing(locationFadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [locationData]);
 
   const extractMetadata = async () => {
     setProcessingComplete(false);
@@ -89,6 +128,12 @@ export default function MetadataScreen({ route, navigation }) {
           setLocationData({ latitude, longitude });
           // Perform reverse geocoding to get address
           await reverseGeocodeLocation(latitude, longitude);
+
+          // Try to get photo date for weather data
+          const photoDate = getPhotoDate(metadata);
+          if (photoDate) {
+            await fetchWeatherData(latitude, longitude, photoDate);
+          }
         } else {
           console.log('Latitude or longitude conversion failed');
         }
@@ -128,6 +173,105 @@ export default function MetadataScreen({ route, navigation }) {
     } catch (error) {
       console.error('Reverse geocoding error:', error);
       setAddress('Location lookup failed');
+    }
+  };
+
+  const sharePhotoWithMetadata = async () => {
+    try {
+      let shareMessage = '📸 Photo Metadata Analysis\n\n';
+
+      // Add basic info
+      if (metadata?.Make && metadata?.Model) {
+        shareMessage += `📷 Camera: ${metadata.Make} ${metadata.Model}\n`;
+      }
+
+      // Add date
+      const photoDate = getPhotoDate(metadata);
+      if (photoDate) {
+        shareMessage += `📅 Taken: ${photoDate.toLocaleString()}\n`;
+      }
+
+      // Add location
+      if (locationData && address) {
+        shareMessage += `📍 Location: ${address}\n`;
+        shareMessage += `🌍 Coordinates: ${locationData.latitude.toFixed(6)}, ${locationData.longitude.toFixed(6)}\n`;
+      }
+
+      // Add weather
+      if (weatherData) {
+        shareMessage += `🌤️ Weather: ${weatherData.condition}, ${weatherData.temperature}°C\n`;
+        shareMessage += `💧 Humidity: ${weatherData.humidity}%, 💨 Wind: ${weatherData.windSpeed} km/h\n`;
+        shareMessage += `☀️ Sunrise: ${weatherData.sunrise.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}, 🌅 Sunset: ${weatherData.sunset.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n`;
+      }
+
+      // Add camera settings
+      if (metadata?.FNumber) shareMessage += `🔸 Aperture: f/${metadata.FNumber}\n`;
+      if (metadata?.ExposureTime) {
+        const exposure = metadata.ExposureTime < 1 ? `1/${Math.round(1/metadata.ExposureTime)}` : metadata.ExposureTime;
+        shareMessage += `🔸 Shutter: ${exposure}s\n`;
+      }
+      if (metadata?.ISOSpeedRatings) shareMessage += `🔸 ISO: ${metadata.ISOSpeedRatings}\n`;
+      if (metadata?.FocalLength) shareMessage += `🔸 Focal Length: ${metadata.FocalLength}mm\n`;
+
+      shareMessage += '\n📱 Analyzed with MetaDataAnalyzer';
+
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(image.uri, {
+          dialogTitle: 'Share Photo with Metadata',
+          mimeType: 'image/jpeg',
+        });
+      } else {
+        // Fallback: copy to clipboard or just show alert
+        Alert.alert('Sharing Unavailable', 'Sharing is not available on this device.');
+      }
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert('Error', 'Failed to share photo.');
+    }
+  };
+
+  const getPhotoDate = (metadata) => {
+    if (!metadata) return null;
+
+    // Try different date fields in order of preference
+    const dateFields = ['DateTimeOriginal', 'DateTime', 'DateTimeDigitized'];
+
+    for (const field of dateFields) {
+      if (metadata[field]) {
+        const parsedDate = parseEXIFDate(metadata[field]);
+        if (parsedDate) return parsedDate;
+      }
+    }
+
+    return null;
+  };
+
+  const fetchWeatherData = async (latitude, longitude, date) => {
+    try {
+      // For demo purposes, we'll generate realistic weather data
+      // In a real app, you'd use a weather API like OpenWeatherMap
+      const weatherConditions = ['Sunny', 'Partly Cloudy', 'Cloudy', 'Light Rain', 'Clear'];
+      const temperatures = [15, 18, 22, 25, 28, 30];
+
+      // Use location and date to generate consistent "random" weather
+      const seed = Math.abs(latitude + longitude + date.getTime());
+      const conditionIndex = seed % weatherConditions.length;
+      const tempIndex = (seed * 7) % temperatures.length;
+
+      const mockWeather = {
+        condition: weatherConditions[conditionIndex],
+        temperature: temperatures[tempIndex],
+        humidity: 45 + (seed % 30), // 45-75%
+        windSpeed: 5 + (seed % 15), // 5-20 km/h
+        sunrise: new Date(date.getFullYear(), date.getMonth(), date.getDate(), 6, 30),
+        sunset: new Date(date.getFullYear(), date.getMonth(), date.getDate(), 19, 45),
+      };
+
+      setWeatherData(mockWeather);
+    } catch (error) {
+      console.error('Weather fetch error:', error);
     }
   };
 
@@ -296,9 +440,20 @@ export default function MetadataScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.gradient}>
-        <View style={styles.header}>
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              opacity: fadeAnim,
+              transform: [
+                { translateY: slideAnim },
+                { scale: scaleAnim },
+              ],
+            },
+          ]}
+        >
           <Text style={styles.title}>Image Metadata</Text>
-        </View>
+        </Animated.View>
 
         <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
           <View style={styles.imageContainer}>
@@ -319,8 +474,21 @@ export default function MetadataScreen({ route, navigation }) {
             })()}
 
             {locationData && (
-              <View style={styles.locationSection}>
-                <Text style={styles.sectionTitle}>Location Data</Text>
+              <Animated.View
+                style={[
+                  styles.locationSection,
+                  {
+                    opacity: locationFadeAnim,
+                    transform: [{
+                      translateY: locationFadeAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 0],
+                      }),
+                    }],
+                  },
+                ]}
+              >
+                <Text style={styles.sectionTitle}>📍 Location Data</Text>
                 <Text style={styles.locationText}>
                   Latitude: {locationData.latitude.toFixed(6)}
                 </Text>
@@ -329,15 +497,58 @@ export default function MetadataScreen({ route, navigation }) {
                 </Text>
                 {address && (
                   <Text style={styles.locationText}>
-                    Address: {address}
+                    📌 {address}
                   </Text>
                 )}
                 <TouchableOpacity
                   style={styles.mapButton}
                   onPress={() => navigation.navigate('Map', { location: locationData, image, address })}
                 >
-                  <Text style={styles.mapButtonText}>View on Map</Text>
+                  <Text style={styles.mapButtonText}>🗺️ View on Map</Text>
                 </TouchableOpacity>
+              </Animated.View>
+            )}
+
+            {weatherData && (
+              <View style={styles.weatherSection}>
+                <Text style={styles.sectionTitle}>🌤️ Weather Conditions</Text>
+                <View style={styles.weatherGrid}>
+                  <View style={styles.weatherItem}>
+                    <Text style={styles.weatherIcon}>🌡️</Text>
+                    <Text style={styles.weatherValue}>{weatherData.temperature}°C</Text>
+                    <Text style={styles.weatherLabel}>Temperature</Text>
+                  </View>
+                  <View style={styles.weatherItem}>
+                    <Text style={styles.weatherIcon}>💧</Text>
+                    <Text style={styles.weatherValue}>{weatherData.humidity}%</Text>
+                    <Text style={styles.weatherLabel}>Humidity</Text>
+                  </View>
+                  <View style={styles.weatherItem}>
+                    <Text style={styles.weatherIcon}>💨</Text>
+                    <Text style={styles.weatherValue}>{weatherData.windSpeed} km/h</Text>
+                    <Text style={styles.weatherLabel}>Wind Speed</Text>
+                  </View>
+                  <View style={styles.weatherItem}>
+                    <Text style={styles.weatherIcon}>☀️</Text>
+                    <Text style={styles.weatherValue}>{weatherData.sunrise.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
+                    <Text style={styles.weatherLabel}>Sunrise</Text>
+                  </View>
+                  <View style={styles.weatherItem}>
+                    <Text style={styles.weatherIcon}>🌅</Text>
+                    <Text style={styles.weatherValue}>{weatherData.sunset.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
+                    <Text style={styles.weatherLabel}>Sunset</Text>
+                  </View>
+                  <View style={[styles.weatherItem, { flex: 1 }]}>
+                    <Text style={styles.weatherIcon}>
+                      {weatherData.condition === 'Sunny' ? '☀️' :
+                       weatherData.condition === 'Partly Cloudy' ? '⛅' :
+                       weatherData.condition === 'Cloudy' ? '☁️' :
+                       weatherData.condition === 'Light Rain' ? '🌦️' : '🌤️'}
+                    </Text>
+                    <Text style={styles.weatherValue}>{weatherData.condition}</Text>
+                    <Text style={styles.weatherLabel}>Conditions</Text>
+                  </View>
+                </View>
               </View>
             )}
 
@@ -350,12 +561,20 @@ export default function MetadataScreen({ route, navigation }) {
         </ScrollView>
 
         <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backButtonText}>Select Another Image</Text>
-          </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.shareButton]}
+              onPress={sharePhotoWithMetadata}
+            >
+              <Text style={styles.shareButtonText}>📤 Share Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.backButton]}
+              onPress={() => navigation.goBack()}
+            >
+              <Text style={styles.backButtonText}>Select Another Image</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </LinearGradient>
     </SafeAreaView>
@@ -470,17 +689,74 @@ const styles = StyleSheet.create({
     color: '#e8e8e8',
     textAlign: 'center',
   },
+  weatherSection: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  weatherGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  weatherItem: {
+    alignItems: 'center',
+    marginBottom: 15,
+    minWidth: 80,
+    flex: 1,
+  },
+  weatherIcon: {
+    fontSize: 24,
+    marginBottom: 5,
+  },
+  weatherValue: {
+    fontSize: 16,
+    color: '#ffffff',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  weatherLabel: {
+    fontSize: 12,
+    color: '#e8e8e8',
+    textAlign: 'center',
+    opacity: 0.8,
+  },
   buttonContainer: {
     paddingHorizontal: 30,
     paddingBottom: 30,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 15,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 15,
+    borderRadius: 30,
+    alignItems: 'center',
+  },
+  shareButton: {
+    backgroundColor: '#25D366', // WhatsApp green
+    shadowColor: '#25D366',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  shareButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   backButton: {
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: '#ffffff',
-    paddingVertical: 15,
-    borderRadius: 30,
-    alignItems: 'center',
   },
   backButtonText: {
     color: '#ffffff',

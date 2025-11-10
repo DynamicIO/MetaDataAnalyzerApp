@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,60 @@ import {
   SafeAreaView,
   StatusBar,
   Dimensions,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [fadeAnim] = useState(new Animated.Value(0));
+  const [scaleAnim] = useState(new Animated.Value(0.8));
+
+  useEffect(() => {
+    // Simulate app initialization/loading
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+      // Animate content entrance
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 2000); // 2 second loading time
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.gradient}
+        >
+          <View style={styles.loadingContainer}>
+            <View style={styles.loadingLogo}>
+              <Text style={styles.loadingIcon}>📊</Text>
+            </View>
+            <ActivityIndicator size="large" color="#ffffff" />
+            <Text style={styles.loadingText}>Initializing MetaData Analyzer</Text>
+            <Text style={styles.loadingSubtext}>Loading amazing features...</Text>
+          </View>
+        </LinearGradient>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -20,7 +68,15 @@ export default function HomeScreen({ navigation }) {
         colors={['#667eea', '#764ba2']}
         style={styles.gradient}
       >
-        <View style={styles.content}>
+        <Animated.View
+          style={[
+            styles.content,
+            {
+              opacity: fadeAnim,
+              transform: [{ scale: scaleAnim }],
+            },
+          ]}
+        >
           <View style={styles.header}>
             <Text style={styles.title}>Meta Data</Text>
             <Text style={styles.subtitle}>Analyzer</Text>
@@ -54,7 +110,7 @@ export default function HomeScreen({ navigation }) {
           >
             <Text style={styles.buttonText}>Start Analyzing</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -146,5 +202,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  loadingLogo: {
+    marginBottom: 40,
+  },
+  loadingIcon: {
+    fontSize: 80,
+    textAlign: 'center',
+  },
+  loadingText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 30,
+    marginBottom: 10,
+  },
+  loadingSubtext: {
+    color: '#e8e8e8',
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.8,
   },
 });

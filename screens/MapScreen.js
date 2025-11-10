@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  Animated,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,6 +18,32 @@ const { width, height } = Dimensions.get('window');
 export default function MapScreen({ route, navigation }) {
   const { location, image, address } = route.params;
   const [mapError, setMapError] = useState(false);
+
+  // Animation values
+  const headerFadeAnim = useRef(new Animated.Value(0)).current;
+  const headerSlideAnim = useRef(new Animated.Value(-30)).current;
+  const mapFadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Animate header and map entrance
+    Animated.parallel([
+      Animated.timing(headerFadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(headerSlideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(mapFadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   const mapRegion = {
     latitude: location.latitude,
@@ -29,22 +56,30 @@ export default function MapScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.gradient}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Photo Location</Text>
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              opacity: headerFadeAnim,
+              transform: [{ translateY: headerSlideAnim }],
+            },
+          ]}
+        >
+          <Text style={styles.title}>📍 Photo Location</Text>
           <Text style={styles.subtitle}>
-            Latitude: {location.latitude.toFixed(6)}
+            🌍 Lat: {location.latitude.toFixed(6)}
           </Text>
           <Text style={styles.subtitle}>
-            Longitude: {location.longitude.toFixed(6)}
+            🌍 Lng: {location.longitude.toFixed(6)}
           </Text>
           {address && (
             <Text style={styles.subtitle}>
-              {address}
+              📌 {address}
             </Text>
           )}
-        </View>
+        </Animated.View>
 
-        <View style={styles.mapContainer}>
+        <Animated.View style={[styles.mapContainer, { opacity: mapFadeAnim }]}>
           {!mapError ? (
             <MapView
               style={styles.map}
@@ -91,7 +126,7 @@ export default function MapScreen({ route, navigation }) {
               )}
             </View>
           )}
-        </View>
+        </Animated.View>
 
         <View style={styles.imagePreview}>
           <Image
